@@ -433,11 +433,9 @@ fn create_voxel_mesh(sampler: &dyn VoxelSampler, origin: Vec3, lod: i32) -> Mesh
     let scale = 2.0f32.powi(lod);
     let mut vertices: Vec<CellVertex> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
-    // let mut position_offsets: [[[[usize; 4]; 18]; 18]; 18] = [[[[0; 4]; 18]; 18]; 18];
     let mut reused_vertices: HashMap<UVec3, usize> =
         HashMap::with_capacity(VoxelSampleGrid::SAMPLE_COUNT * VoxelSampleGrid::SAMPLE_COUNT * 4);
 
-    // let center = Vec3::new(9.0, 9.0, 9.0);
     for x in 0..VoxelSampleGrid::SAMPLE_COUNT - 1 {
         for y in 0..VoxelSampleGrid::SAMPLE_COUNT - 1 {
             for z in 0..VoxelSampleGrid::SAMPLE_COUNT - 1 {
@@ -457,7 +455,6 @@ fn create_voxel_mesh(sampler: &dyn VoxelSampler, origin: Vec3, lod: i32) -> Mesh
                                 + origin,
                         )
                         .distance;
-                    // corner_samples[i] = grid.samples[x + dx][y + dy][z + dz];
                     if corner_samples[i] < 0.0 {
                         cube_case |= 1 << i;
                     }
@@ -467,9 +464,6 @@ fn create_voxel_mesh(sampler: &dyn VoxelSampler, origin: Vec3, lod: i32) -> Mesh
                 if rclass.vertex_count == 0 {
                     continue;
                 }
-
-                // let reuse_mask =
-                //     (x > 0) as usize | ((y > 0) as usize) << 1 | ((z > 0) as usize) << 2;
 
                 let cell_origin = UVec3::new((x << 9) as u32, (y << 9) as u32, (z << 9) as u32);
 
@@ -484,25 +478,7 @@ fn create_voxel_mesh(sampler: &dyn VoxelSampler, origin: Vec3, lod: i32) -> Mesh
                     let s0 = corner_samples[n0];
                     let s1 = corner_samples[n1];
                     let t = (512.0 * s1 / (s1 - s0)) as u32;
-                    // let v_index = ((vdata >> 8) & 0x0f) as usize;
-                    // let v_reuse = (vdata >> 12) as usize;
-                    // let mut try_reuse = false;
                     let pos = (t * u0 + (512 - t) * u1) / 512;
-                    // if t & 0xFF != 0 {
-                    //     pos = (t * u0 + (0x100 - t) * u1) / 256;
-                    //     // try_reuse = true;
-                    // } else if t == 0 {
-                    //     pos = u1;
-                    //     if n0 != 7 {
-                    //         // owned
-                    //     } else {
-                    //         // v_reuse = 0;
-                    //         // try_reuse = true;
-                    //     }
-                    // } else {
-                    //     pos = u0;
-                    //     // try_reuse = true;
-                    // }
 
                     match reused_vertices.get(&pos) {
                         Some(&offs) => {
@@ -522,29 +498,6 @@ fn create_voxel_mesh(sampler: &dyn VoxelSampler, origin: Vec3, lod: i32) -> Mesh
                             vertices.push(CellVertex::new(fpos));
                         }
                     }
-
-                    // More efficient method of reusing vertices, but which has a subtle
-                    // bug that I have not been able to track down.
-
-                    // Flag indicates we want to re-used a vertex.
-                    // if try_reuse && (v_reuse & reuse_mask) == v_reuse {
-                    //     let px = x - (v_reuse & 0x01);
-                    //     let py = y - ((v_reuse >> 1) & 0x01);
-                    //     let pz = z - ((v_reuse >> 2) & 0x01);
-                    //     let offs = position_offsets[px][py][pz][v_index];
-                    //     cell_indices[i] = offs;
-                    //     cell_vertices[i] = vertices[offs].position;
-                    // } else {
-                    //     // let t = t as f32 / 256.0;
-                    //     // let pos = t * p0 + (1.0 - t) * p1 - center;
-                    //     let fpos =
-                    //         Vec3::new(pos.x as f32, pos.y as f32, pos.z as f32) / 256.0 - center;
-                    //     let ioffset = vertices.len();
-                    //     cell_indices[i] = ioffset;
-                    //     cell_vertices[i] = fpos;
-                    //     position_offsets[x][y][z][v_index] = ioffset;
-                    //     vertices.push(CellVertex::new(fpos));
-                    // }
                 }
 
                 let num_indices = rclass.vertex_indices.len();
