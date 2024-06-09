@@ -395,6 +395,8 @@ fn create_terrain_meshes(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut query: Query<&mut VoxelChunk>,
 ) {
+    // TODO: Voxel chunks need a reference to the planetary body they are a part of,
+    // and the sampler needs to be assoviated with that.
     let plane = PlaneSampler::new(Vec3::new(0.5, 0.7, 0.3).normalize(), 0.0);
     let sphere = SphereSampler::new(Vec3::new(0., 0., 0.), 4.0);
     let sphere2 = SphereSampler::new(Vec3::new(4., -1., 0.), 2.0);
@@ -407,7 +409,6 @@ fn create_terrain_meshes(
     };
 
     for mut chunk in query.iter_mut() {
-        // How do we get the sampler?
         if chunk.status == VoxelChunkStatus::Waiting {
             match combined.solidity(chunk.bounds()) {
                 Solidity::Indeterminate => {
@@ -439,22 +440,21 @@ fn create_voxel_mesh(sampler: &dyn VoxelSampler, origin: Vec3, lod: i32) -> Mesh
     for x in 0..VoxelSampleGrid::SAMPLE_COUNT - 1 {
         for y in 0..VoxelSampleGrid::SAMPLE_COUNT - 1 {
             for z in 0..VoxelSampleGrid::SAMPLE_COUNT - 1 {
+                // Compute the samples for each corner.
                 let mut cube_case: usize = 0;
                 let mut corner_samples: [f32; 8] = [0.0; 8];
                 for i in 0..8 {
                     let dx = i & 1;
                     let dy = (i >> 1) & 1;
                     let dz = (i >> 2) & 1;
-                    corner_samples[i] = sampler
-                        .sample(
-                            Vec3::new(
-                                (x + dx) as f32 - 1.0,
-                                (y + dy) as f32 - 1.0,
-                                (z + dz) as f32 - 1.0,
-                            ) * scale
-                                + origin,
-                        )
-                        .distance;
+                    corner_samples[i] = sampler.distance(
+                        Vec3::new(
+                            (x + dx) as f32 - 1.0,
+                            (y + dy) as f32 - 1.0,
+                            (z + dz) as f32 - 1.0,
+                        ) * scale
+                            + origin,
+                    );
                     if corner_samples[i] < 0.0 {
                         cube_case |= 1 << i;
                     }
@@ -465,6 +465,7 @@ fn create_voxel_mesh(sampler: &dyn VoxelSampler, origin: Vec3, lod: i32) -> Mesh
                     continue;
                 }
 
+                // Location of the cell's minimum corner.
                 let cell_origin = UVec3::new((x << 9) as u32, (y << 9) as u32, (z << 9) as u32);
 
                 let rvtx = REGULAR_VERTEX_DATA[cube_case];
@@ -473,13 +474,37 @@ fn create_voxel_mesh(sampler: &dyn VoxelSampler, origin: Vec3, lod: i32) -> Mesh
                 for (i, vdata) in rvtx.iter().enumerate() {
                     let n0 = ((vdata >> 4) & 0x0F) as usize;
                     let n1 = (vdata & 0x0F) as usize;
-                    let u0 = cell_origin + corner_offset(n0 as u32) * 512;
-                    let u1 = cell_origin + corner_offset(n1 as u32) * 512;
-                    let s0 = corner_samples[n0];
-                    let s1 = corner_samples[n1];
-                    let t = (512.0 * s1 / (s1 - s0)) as u32;
+                    let mut u0 = cell_origin + corner_offset(n0 as u32) * 512;
+                    let mut u1 = cell_origin + corner_offset(n1 as u32) * 512;
+                    let mut s0 = corner_samples[n0];
+                    let mut s1 = corner_samples[n1];
+
+                    // For higher LODs, recursively subdivide until we find the exact crossing
+                    // point.
+                    for _ in 0..lod {
+                        let um = (u0 + u1) / 2;
+                        let sm = sampler.distance(
+                            Vec3::new(
+                                um.x as f32 / 512.0 - 1.0,
+                                um.y as f32 / 512.0 - 1.0,
+                                um.z as f32 / 512.0 - 1.0,
+                            ) * scale
+                                + origin,
+                        );
+                        if (sm >= 0.0 && s0 >= 0.0) || (sm <= 0.0 && s0 <= 0.0) {
+                            u0 = um;
+                            s0 = sm;
+                        } else {
+                            u1 = um;
+                            s1 = sm;
+                        }
+                    }
+
+                    let t = s1 / (s1 - s0);
+                    let t = (512.0 * t) as u32;
                     let pos = (t * u0 + (512 - t) * u1) / 512;
 
+                    // Try to re-use a vertex that has already been created.
                     match reused_vertices.get(&pos) {
                         Some(&offs) => {
                             cell_indices[i] = offs;
@@ -503,6 +528,7 @@ fn create_voxel_mesh(sampler: &dyn VoxelSampler, origin: Vec3, lod: i32) -> Mesh
                 let num_indices = rclass.vertex_indices.len();
                 let num_triangles = num_indices / 3;
                 for i in 0..num_triangles {
+                    // Compute the vertices of the triangle.
                     let i0 = rclass.vertex_indices[i * 3] as u32;
                     let i1 = rclass.vertex_indices[i * 3 + 1] as u32;
                     let i2 = rclass.vertex_indices[i * 3 + 2] as u32;
@@ -539,6 +565,7 @@ fn create_voxel_mesh(sampler: &dyn VoxelSampler, origin: Vec3, lod: i32) -> Mesh
         }
     }
 
+    // Remove unused vertices, and compact all the indices.
     let num_vertices_used = vertices.iter().filter(|v| v.triangle_count > 0).count();
     let mut position = vec![Vec3::ZERO; num_vertices_used];
     let mut normal = vec![Vec3::ZERO; num_vertices_used];
@@ -557,6 +584,7 @@ fn create_voxel_mesh(sampler: &dyn VoxelSampler, origin: Vec3, lod: i32) -> Mesh
         *ind = vertices[*ind as usize].mapped_index;
     }
 
+    // Build the mesh.
     let mut mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::RENDER_WORLD,
