@@ -10,10 +10,10 @@
       "group": {
         "kind": "build",
         "isDefault": true
-      },
-      "env": {
-        "RUST_BACKTRACE": "1"
       }
+      // "env": {
+      //   "RUST_BACKTRACE": "1"
+      // }
     }
   ]
 }

@@ -14,3 +14,4 @@ bevy = { workspace = true }
 
 [dev-dependencies]
 cots_orbit_camera = { path = "crates/cots_orbit_camera" }
+cots_terrain = { path = "crates/cots_terrain" }

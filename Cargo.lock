@@ -1453,10 +1453,18 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "cots_orbit_camera",
+ "cots_terrain",
 ]
 
 [[package]]
 name = "cots_orbit_camera"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+]
+
+[[package]]
+name = "cots_terrain"
 version = "0.1.0"
 dependencies = [
  "bevy",
